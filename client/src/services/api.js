@@ -1,13 +1,12 @@
 /* File: client/src/services/api.js
-  Purpose: Add a new function to delete a message.
-  Action: Add the deleteMessageForEveryone function.
+  Purpose: Add a new function to get all users.
 */
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from './firebase';
 
 const API_URL = 'http://localhost:5001/api';
 
-// --- registerUser, loginUser, searchUser, createChat functions are unchanged ---
+// --- registerUser, loginUser functions are unchanged ---
 export const registerUser = async (userData) => {
   try {
     const response = await fetch(`${API_URL}/auth/register`, {
@@ -44,6 +43,20 @@ export const loginUser = async (credentials) => {
   }
 };
 
+// --- NEW getUsers function ---
+export const getUsers = async () => {
+    try {
+        const response = await fetch(`${API_URL}/users`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch users');
+        }
+        return await response.json();
+    } catch (error) {
+        throw error;
+    }
+};
+
+
 export const searchUser = async (username) => {
     try {
         const response = await fetch(`${API_URL}/users/search?username=${username}`);
@@ -74,7 +87,6 @@ export const createChat = async (chatData) => {
     }
 };
 
-// --- NEW DELETE MESSAGE FUNCTION ---
 export const deleteMessageForEveryone = async (chatId, messageId) => {
     try {
         const user = auth.currentUser;

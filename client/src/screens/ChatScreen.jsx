@@ -1,5 +1,5 @@
 /* File: client/src/screens/ChatScreen.jsx
-  Purpose: The main layout component, restyled for the Gaprio theme.
+  Purpose: The main layout component, updated to manage the new modal.
 */
 import React, { useState } from 'react';
 import ChatList from '../components/ChatList';
