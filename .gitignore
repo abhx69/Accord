@@ -1,0 +1,25 @@
+# Node modules in client and server
+/client/node_modules
+/server/node_modules
+
+# Build outputs (optional, if you build front-end or back-end)
+client/build
+server/build
+dist
+
+# Configuration files with secrets
+/server/config/serviceAccountKey.json
+
+# Environment variables
+/server/.env
+/client/.env
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS-specific files
+.DS_Store
+Thumbs.db
