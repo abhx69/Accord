@@ -13,6 +13,7 @@ dist
 # Environment variables
 /server/.env
 /client/.env
+/client/.env.local
 
 # Logs
 *.log
