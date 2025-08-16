@@ -155,7 +155,7 @@ function MessagePanel({ user, chat }) {
       </form>
 
       {isGroupInfoOpen && (
-        <GroupInfoModal chat={chat} onClose={() => setIsGroupInfoOpen(false)} />
+        <GroupInfoModal chat={chat} currentUser={user} onClose={() => setIsGroupInfoOpen(false)} />
       )}
     </div>
   );

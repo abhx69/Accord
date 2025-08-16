@@ -1,12 +1,12 @@
 /* File: client/src/services/api.js
-  Purpose: Update the createChat function to send the user's auth token.
+  Purpose: Add new functions for adding and removing group members.
 */
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from './firebase';
 
 const API_URL = 'http://localhost:5001/api';
 
-// --- registerUser, loginUser, getUsers, searchUser functions are unchanged ---
+// --- other functions are unchanged ---
 export const registerUser = async (userData) => {
   try {
     const response = await fetch(`${API_URL}/auth/register`, {
@@ -68,7 +68,6 @@ export const searchUser = async (username) => {
     }
 };
 
-// UPDATED createChat function
 export const createChat = async (chatData) => {
     try {
         const user = auth.currentUser;
@@ -80,7 +79,7 @@ export const createChat = async (chatData) => {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}` // Send the token for verification
+                'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify(chatData),
         });
@@ -114,6 +113,54 @@ export const deleteMessageForEveryone = async (chatId, messageId) => {
         }
 
         return { success: true };
+    } catch (error) {
+        throw error;
+    }
+};
+
+// NEW FUNCTION to add a member
+export const addMemberToGroup = async (chatId, newMember) => {
+    try {
+        const user = auth.currentUser;
+        if (!user) throw new Error('You must be logged in.');
+        const token = await user.getIdToken();
+        const response = await fetch(`${API_URL}/chats/${chatId}/members/add`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ newMember }),
+        });
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Failed to add member');
+        }
+        return await response.json();
+    } catch (error) {
+        throw error;
+    }
+};
+
+// NEW FUNCTION to remove a member
+export const removeMemberFromGroup = async (chatId, memberIdToRemove) => {
+    try {
+        const user = auth.currentUser;
+        if (!user) throw new Error('You must be logged in.');
+        const token = await user.getIdToken();
+        const response = await fetch(`${API_URL}/chats/${chatId}/members/remove`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ memberIdToRemove }),
+        });
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Failed to remove member');
+        }
+        return await response.json();
     } catch (error) {
         throw error;
     }

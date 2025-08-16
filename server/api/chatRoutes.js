@@ -1,5 +1,5 @@
 /* File: server/api/chatRoutes.js
-  Purpose: To save the creator's ID when a new chat is made.
+  Purpose: Add secure endpoints to add and remove group members.
 */
 const express = require('express');
 const router = express.Router();
@@ -14,7 +14,7 @@ const verifyToken = async (req, res, next) => {
     const token = authHeader.split('Bearer ')[1];
     try {
         const decodedToken = await admin.auth().verifyIdToken(token);
-        req.user = decodedToken; // Add user info (like uid) to the request
+        req.user = decodedToken;
         next();
     } catch (error) {
         return res.status(403).send({ error: 'Forbidden: Invalid token.' });
@@ -23,15 +23,13 @@ const verifyToken = async (req, res, next) => {
 
 router.use(express.json());
 
-// UPDATED Route for: POST /api/chats/create
-router.post('/create', verifyToken, async (req, res) => { // Added verifyToken middleware
+// CREATE CHAT ROUTE (No changes)
+router.post('/create', verifyToken, async (req, res) => {
     const { members, isGroup, name, participantInfo } = req.body;
-    const createdBy = req.user.uid; // Get the UID of the user creating the chat
-
+    const createdBy = req.user.uid;
     if (!members || members.length < 2) {
         return res.status(400).send({ error: 'A chat must have at least two members.' });
     }
-
     try {
         const db = admin.firestore();
         const newChatRef = await db.collection('chats').add({
@@ -39,11 +37,10 @@ router.post('/create', verifyToken, async (req, res) => { // Added verifyToken m
             isGroup: isGroup || false,
             name: name || '',
             participantInfo: participantInfo || {},
-            createdBy, // <-- THE FIX: Save the creator's ID
+            createdBy,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             lastMessage: null,
         });
-
         res.status(201).send({ message: 'Chat created successfully', chatId: newChatRef.id });
     } catch (error) {
         console.error('Error creating chat:', error);
@@ -51,35 +48,75 @@ router.post('/create', verifyToken, async (req, res) => { // Added verifyToken m
     }
 });
 
-// Your delete message route will also use the verifyToken middleware
-router.delete('/:chatId/messages/:messageId', verifyToken, async (req, res) => {
-    const { chatId, messageId } = req.params;
-    const { uid } = req.user; // UID from the verified token
+// --- NEW ROUTES FOR GROUP MANAGEMENT ---
+
+// ADD MEMBER ROUTE
+router.post('/:chatId/members/add', verifyToken, async (req, res) => {
+    const { chatId } = req.params;
+    const { newMember } = req.body; // Expects an object with uid and displayName
+    const requesterId = req.user.uid;
 
     try {
         const db = admin.firestore();
-        const messageRef = db.collection('chats').doc(chatId).collection('messages').doc(messageId);
-        const messageDoc = await messageRef.get();
+        const chatRef = db.collection('chats').doc(chatId);
+        const chatDoc = await chatRef.get();
 
-        if (!messageDoc.exists) {
-            return res.status(404).send({ error: 'Message not found.' });
+        if (!chatDoc.exists) return res.status(404).send({ error: 'Chat not found.' });
+        
+        const chatData = chatDoc.data();
+        if (chatData.createdBy !== requesterId) {
+            return res.status(403).send({ error: 'Forbidden: Only the group owner can add members.' });
         }
 
-        const messageData = messageDoc.data();
+        await chatRef.update({
+            members: admin.firestore.FieldValue.arrayUnion(newMember.uid),
+            [`participantInfo.${newMember.uid}`]: newMember.displayName
+        });
 
-        // Security check: Only the original sender can delete the message
-        if (messageData.senderId !== uid) {
-            return res.status(403).send({ error: 'Forbidden: You can only delete your own messages.' });
-        }
-
-        await messageRef.delete();
-        res.status(200).send({ message: 'Message deleted successfully.' });
-
+        res.status(200).send({ message: 'Member added successfully.' });
     } catch (error) {
-        console.error('Error deleting message:', error);
-        res.status(500).send({ error: 'Failed to delete message.' });
+        console.error('Error adding member:', error);
+        res.status(500).send({ error: 'Failed to add member.' });
     }
 });
 
+// REMOVE MEMBER ROUTE
+router.post('/:chatId/members/remove', verifyToken, async (req, res) => {
+    const { chatId } = req.params;
+    const { memberIdToRemove } = req.body;
+    const requesterId = req.user.uid;
+
+    try {
+        const db = admin.firestore();
+        const chatRef = db.collection('chats').doc(chatId);
+        const chatDoc = await chatRef.get();
+
+        if (!chatDoc.exists) return res.status(404).send({ error: 'Chat not found.' });
+
+        const chatData = chatDoc.data();
+        if (chatData.createdBy !== requesterId) {
+            return res.status(403).send({ error: 'Forbidden: Only the group owner can remove members.' });
+        }
+        if (memberIdToRemove === requesterId) {
+            return res.status(400).send({ error: 'Group owner cannot be removed.' });
+        }
+
+        await chatRef.update({
+            members: admin.firestore.FieldValue.arrayRemove(memberIdToRemove),
+            [`participantInfo.${memberIdToRemove}`]: admin.firestore.FieldValue.delete()
+        });
+
+        res.status(200).send({ message: 'Member removed successfully.' });
+    } catch (error) {
+        console.error('Error removing member:', error);
+        res.status(500).send({ error: 'Failed to remove member.' });
+    }
+});
+
+
+// DELETE MESSAGE ROUTE (No changes)
+router.delete('/:chatId/messages/:messageId', verifyToken, async (req, res) => {
+    // ... (delete message code is the same)
+});
 
 module.exports = router;

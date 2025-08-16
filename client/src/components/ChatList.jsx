@@ -1,9 +1,8 @@
 /* File: client/src/components/ChatList.jsx
-  Purpose: The chat list sidebar, with a new search bar.
+  Purpose: This component now receives the chat list as a prop instead of fetching it.
+  Action: Replace the content of this file.
 */
-import React, { useState, useEffect } from 'react';
-import { db } from '../services/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import React, { useState } from 'react';
 
 const styles = {
   container: { borderRight: '1px solid #374151', height: '100%', display: 'flex', flexDirection: 'column' },
@@ -18,20 +17,10 @@ const styles = {
   lastMessage: { fontSize: '14px', color: '#9CA3AF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
 };
 
-function ChatList({ user, onSelectChat, activeChatId, onNewChat }) {
-    const [chats, setChats] = useState([]);
-    const [searchTerm, setSearchTerm] = useState(''); // New state for the search term
+function ChatList({ chats, user, onSelectChat, activeChatId, onNewChat }) {
+    const [searchTerm, setSearchTerm] = useState('');
 
-    useEffect(() => {
-        if (!user?.uid) return;
-        const chatsRef = collection(db, 'chats');
-        const q = query(chatsRef, where('members', 'array-contains', user.uid));
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const userChats = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setChats(userChats);
-        });
-        return () => unsubscribe();
-    }, [user]);
+    // The useEffect hook that fetched data has been removed from this component.
 
     const getChatDisplayName = (chat) => {
         if (chat.isGroup) {
@@ -41,7 +30,6 @@ function ChatList({ user, onSelectChat, activeChatId, onNewChat }) {
         return chat.participantInfo?.[otherUserId] || 'Direct Message';
     };
 
-    // Filter chats based on the search term
     const filteredChats = chats.filter(chat => 
         getChatDisplayName(chat).toLowerCase().includes(searchTerm.toLowerCase())
     );
