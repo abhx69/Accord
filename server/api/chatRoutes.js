@@ -1,5 +1,5 @@
 /* File: server/api/chatRoutes.js
-  Purpose: Add secure endpoints to add and remove group members.
+  Purpose: The complete and final version with all chat-related features.
 */
 const express = require('express');
 const router = express.Router();
@@ -23,7 +23,7 @@ const verifyToken = async (req, res, next) => {
 
 router.use(express.json());
 
-// CREATE CHAT ROUTE (No changes)
+// CREATE CHAT ROUTE
 router.post('/create', verifyToken, async (req, res) => {
     const { members, isGroup, name, participantInfo } = req.body;
     const createdBy = req.user.uid;
@@ -33,13 +33,9 @@ router.post('/create', verifyToken, async (req, res) => {
     try {
         const db = admin.firestore();
         const newChatRef = await db.collection('chats').add({
-            members,
-            isGroup: isGroup || false,
-            name: name || '',
-            participantInfo: participantInfo || {},
-            createdBy,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            lastMessage: null,
+            members, isGroup: isGroup || false, name: name || '',
+            participantInfo: participantInfo || {}, createdBy,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(), lastMessage: null,
         });
         res.status(201).send({ message: 'Chat created successfully', chatId: newChatRef.id });
     } catch (error) {
@@ -48,12 +44,30 @@ router.post('/create', verifyToken, async (req, res) => {
     }
 });
 
-// --- NEW ROUTES FOR GROUP MANAGEMENT ---
+// LEAVE CHAT ROUTE  this api is to dlete member from the chat list
+router.post('/:chatId/leave', verifyToken, async (req, res) => {
+    const { chatId } = req.params;
+    const { uid } = req.user;
+
+    try {
+        const db = admin.firestore();
+        const chatRef = db.collection('chats').doc(chatId);
+        
+        await chatRef.update({
+            members: admin.firestore.FieldValue.arrayRemove(uid)
+        });
+
+        res.status(200).send({ message: 'Successfully left the chat.' });
+    } catch (error) {
+        console.error('Error leaving chat:', error);
+        res.status(500).send({ error: 'Failed to leave chat.' });
+    }
+});
 
 // ADD MEMBER ROUTE
 router.post('/:chatId/members/add', verifyToken, async (req, res) => {
     const { chatId } = req.params;
-    const { newMember } = req.body; // Expects an object with uid and displayName
+    const { newMember } = req.body;
     const requesterId = req.user.uid;
 
     try {
@@ -113,10 +127,33 @@ router.post('/:chatId/members/remove', verifyToken, async (req, res) => {
     }
 });
 
-
-// DELETE MESSAGE ROUTE (No changes)
+// DELETE MESSAGE ROUTE
 router.delete('/:chatId/messages/:messageId', verifyToken, async (req, res) => {
-    // ... (delete message code is the same)
+    const { chatId, messageId } = req.params;
+    const { uid } = req.user;
+
+    try {
+        const db = admin.firestore();
+        const messageRef = db.collection('chats').doc(chatId).collection('messages').doc(messageId);
+        const messageDoc = await messageRef.get();
+
+        if (!messageDoc.exists) {
+            return res.status(404).send({ error: 'Message not found.' });
+        }
+
+        const messageData = messageDoc.data();
+
+        if (messageData.senderId !== uid) {
+            return res.status(403).send({ error: 'Forbidden: You can only delete your own messages.' });
+        }
+
+        await messageRef.delete();
+        res.status(200).send({ message: 'Message deleted successfully.' });
+
+    } catch (error) {
+        console.error('Error deleting message:', error);
+        res.status(500).send({ error: 'Failed to delete message.' });
+    }
 });
 
 module.exports = router;

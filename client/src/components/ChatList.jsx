@@ -1,7 +1,3 @@
-/* File: client/src/components/ChatList.jsx
-  Purpose: This component now receives the chat list as a prop instead of fetching it.
-  Action: Replace the content of this file.
-*/
 import React, { useState } from 'react';
 
 const styles = {
@@ -11,16 +7,22 @@ const styles = {
   searchContainer: { padding: '10px 15px', borderBottom: '1px solid #374151' },
   searchInput: { width: '100%', padding: '8px 12px', borderRadius: '4px', border: '1px solid #4B5563', backgroundColor: '#374151', color: '#FFFFFF' },
   chatList: { flexGrow: 1, overflowY: 'auto' },
-  chatItem: { padding: '15px 20px', borderBottom: '1px solid #374151', cursor: 'pointer' },
+  chatItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', borderBottom: '1px solid #374151', cursor: 'pointer' },
   activeChatItem: { backgroundColor: '#374151' },
   chatName: { fontWeight: 'bold', marginBottom: '5px', color: '#FFFFFF' },
-  lastMessage: { fontSize: '14px', color: '#9CA3AF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
+  lastMessage: { fontSize: '14px', color: '#9CA3AF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  leaveButton: { background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: '18px', padding: '0 5px' }
 };
 
-function ChatList({ chats, user, onSelectChat, activeChatId, onNewChat }) {
+// The onLeaveChat prop is now received from ChatScreen
+function ChatList({ chats, user, onSelectChat, activeChatId, onNewChat, onLeaveChat }) {
     const [searchTerm, setSearchTerm] = useState('');
+    const [hoveredChatId, setHoveredChatId] = useState(null);
 
-    // The useEffect hook that fetched data has been removed from this component.
+    const handleLeaveClick = (e, chatId) => {
+        e.stopPropagation();
+        onLeaveChat(chatId); // Just call the function from the parent
+    };
 
     const getChatDisplayName = (chat) => {
         if (chat.isGroup) {
@@ -54,9 +56,18 @@ function ChatList({ chats, user, onSelectChat, activeChatId, onNewChat }) {
                         key={chat.id} 
                         style={{...styles.chatItem, ...(chat.id === activeChatId ? styles.activeChatItem : {})}}
                         onClick={() => onSelectChat(chat)}
+                        onMouseEnter={() => setHoveredChatId(chat.id)}
+                        onMouseLeave={() => setHoveredChatId(null)}
                     >
-                        <div style={styles.chatName}>{getChatDisplayName(chat)}</div>
-                        <div style={styles.lastMessage}>{chat.lastMessage?.text || '...'}</div>
+                        <div>
+                            <div style={styles.chatName}>{getChatDisplayName(chat)}</div>
+                            <div style={styles.lastMessage}>{chat.lastMessage?.text || '...'}</div>
+                        </div>
+                        {hoveredChatId === chat.id && (
+                            <button style={styles.leaveButton} onClick={(e) => handleLeaveClick(e, chat.id)}>
+                                &times;
+                            </button>
+                        )}
                     </div>
                 ))}
             </div>

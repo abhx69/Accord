@@ -1,12 +1,10 @@
-/* File: client/src/screens/ChatScreen.jsx
-  Purpose: This component now manages the real-time chat list to ensure data is always fresh.
-*/
 import React, { useState, useEffect } from 'react';
 import ChatList from '../components/ChatList';
 import MessagePanel from '../components/MessagePanel';
 import NewChatModal from '../components/NewChatModal';
 import { db } from '../services/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { leaveChat } from '../services/api';
 
 const styles = {
   screenContainer: { display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', backgroundColor: '#111827' },
@@ -22,10 +20,9 @@ const styles = {
 
 function ChatScreen({ user, onLogout }) {
   const [chats, setChats] = useState([]);
-  const [activeChat, setActiveChat] = useState(null);
+  const [activeChatId, setActiveChatId] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // THIS IS THE FIX: The real-time listener is now in the parent component.
   useEffect(() => {
     if (!user?.uid) return;
     const chatsRef = collection(db, 'chats');
@@ -34,20 +31,36 @@ function ChatScreen({ user, onLogout }) {
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const userChats = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setChats(userChats);
-
-        // If there's an active chat, find its updated version and refresh the state
-        if (activeChat?.id) {
-            const updatedActiveChat = userChats.find(chat => chat.id === activeChat.id);
-            if (updatedActiveChat) {
-                setActiveChat(updatedActiveChat);
-            } else {
-                setActiveChat(null); // Active chat was deleted or user was removed
-            }
-        }
     });
 
     return () => unsubscribe();
-  }, [user, activeChat?.id]); // Reruns if the user or active chat changes
+  }, [user]);
+
+  const activeChat = chats.find(chat => chat.id === activeChatId) || null;
+
+  useEffect(() => {
+      if (activeChatId && !activeChat) {
+          setActiveChatId(null);
+      }
+  }, [activeChatId, activeChat, chats]);
+
+  // THIS IS THE FIX: The logic for leaving a chat is now in the parent component.
+  const handleLeaveChat = async (chatId) => {
+    if (window.confirm("Are you sure you want to leave this chat?")) {
+        // Optimistic update for instant UI feedback
+        if (activeChatId === chatId) {
+            setActiveChatId(null);
+        }
+        setChats(prevChats => prevChats.filter(c => c.id !== chatId));
+
+        try {
+            await leaveChat(chatId); // API call in the background
+        } catch (error) {
+            alert(error.message);
+            // Optional: Add logic to revert the state change if API fails
+        }
+    }
+  };
 
   return (
     <div style={styles.screenContainer}>
@@ -61,11 +74,12 @@ function ChatScreen({ user, onLogout }) {
         <div style={styles.chatContainer}>
             <div style={styles.sidebar}>
                 <ChatList 
-                    chats={chats} // Pass the live chat list down as a prop
+                    chats={chats}
                     user={user} 
-                    onSelectChat={setActiveChat} 
-                    activeChatId={activeChat?.id}
+                    onSelectChat={(chat) => setActiveChatId(chat.id)} 
+                    activeChatId={activeChatId}
                     onNewChat={() => setIsModalOpen(true)}
+                    onLeaveChat={handleLeaveChat} // Pass the new handler down
                 />
             </div>
             <div style={styles.mainContent}>

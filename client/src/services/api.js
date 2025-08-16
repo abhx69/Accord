@@ -1,5 +1,5 @@
 /* File: client/src/services/api.js
-  Purpose: Add new functions for adding and removing group members.
+  Purpose: Add a new function for leaving a chat.
 */
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from './firebase';
@@ -118,7 +118,6 @@ export const deleteMessageForEveryone = async (chatId, messageId) => {
     }
 };
 
-// NEW FUNCTION to add a member
 export const addMemberToGroup = async (chatId, newMember) => {
     try {
         const user = auth.currentUser;
@@ -142,7 +141,6 @@ export const addMemberToGroup = async (chatId, newMember) => {
     }
 };
 
-// NEW FUNCTION to remove a member
 export const removeMemberFromGroup = async (chatId, memberIdToRemove) => {
     try {
         const user = auth.currentUser;
@@ -166,3 +164,24 @@ export const removeMemberFromGroup = async (chatId, memberIdToRemove) => {
     }
 };
 
+// --- NEW LEAVE CHAT FUNCTION ---
+export const leaveChat = async (chatId) => {
+    try {
+        const user = auth.currentUser;
+        if (!user) throw new Error('You must be logged in.');
+        const token = await user.getIdToken();
+        const response = await fetch(`${API_URL}/chats/${chatId}/leave`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+        });
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Failed to leave chat');
+        }
+        return await response.json();
+    } catch (error) {
+        throw error;
+    }
+};
