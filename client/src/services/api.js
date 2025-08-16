@@ -1,12 +1,12 @@
 /* File: client/src/services/api.js
-  Purpose: Add a new function to get all users.
+  Purpose: Update the createChat function to send the user's auth token.
 */
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from './firebase';
 
 const API_URL = 'http://localhost:5001/api';
 
-// --- registerUser, loginUser functions are unchanged ---
+// --- registerUser, loginUser, getUsers, searchUser functions are unchanged ---
 export const registerUser = async (userData) => {
   try {
     const response = await fetch(`${API_URL}/auth/register`, {
@@ -43,7 +43,6 @@ export const loginUser = async (credentials) => {
   }
 };
 
-// --- NEW getUsers function ---
 export const getUsers = async () => {
     try {
         const response = await fetch(`${API_URL}/users`);
@@ -55,7 +54,6 @@ export const getUsers = async () => {
         throw error;
     }
 };
-
 
 export const searchUser = async (username) => {
     try {
@@ -70,11 +68,20 @@ export const searchUser = async (username) => {
     }
 };
 
+// UPDATED createChat function
 export const createChat = async (chatData) => {
     try {
+        const user = auth.currentUser;
+        if (!user) throw new Error('You must be logged in to create a chat.');
+        
+        const token = await user.getIdToken();
+
         const response = await fetch(`${API_URL}/chats/create`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` // Send the token for verification
+            },
             body: JSON.stringify(chatData),
         });
         const data = await response.json();
@@ -111,3 +118,4 @@ export const deleteMessageForEveryone = async (chatId, messageId) => {
         throw error;
     }
 };
+

@@ -1,14 +1,16 @@
 /* File: client/src/components/MessagePanel.jsx
-  Purpose: A completely rewritten, simpler, and more reliable "unsend" feature.
+  Purpose: Make the header clickable for group chats to open the new modal.
 */
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { deleteMessageForEveryone } from '../services/api';
+import GroupInfoModal from './GroupInfoModal'; // Import the new modal
 
 const styles = {
   container: { display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' },
   header: { padding: '15px 20px', borderBottom: '1px solid #374151', backgroundColor: '#1F2937' },
+  groupHeader: { cursor: 'pointer' }, // Make group headers clickable
   chatName: { fontWeight: 'bold', fontSize: '18px', color: '#FFFFFF' },
   messageArea: { flexGrow: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column' },
   messageInputForm: { display: 'flex', padding: '10px', borderTop: '1px solid #374151', backgroundColor: '#1F2937' },
@@ -30,8 +32,9 @@ const styles = {
 function MessagePanel({ user, chat }) {
   const [newMessage, setNewMessage] = useState('');
   const [messages, setMessages] = useState([]);
+  const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false);
   const [hoveredMessageId, setHoveredMessageId] = useState(null);
-  const [optionsMessageId, setOptionsMessageId] = useState(null); // NEW: Tracks which message shows options
+  const [optionsMessageId, setOptionsMessageId] = useState(null);
   const scrollAnchorRef = useRef(null);
 
   useEffect(() => {
@@ -42,7 +45,7 @@ function MessagePanel({ user, chat }) {
 
   useEffect(() => {
     if (!chat?.id) return;
-    setOptionsMessageId(null); // Reset options when chat changes
+    setOptionsMessageId(null);
     const messagesRef = collection(db, 'chats', chat.id, 'messages');
     const q = query(messagesRef, orderBy('timestamp', 'asc'));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -87,7 +90,7 @@ function MessagePanel({ user, chat }) {
 
   if (!chat) {
     return (
-      <div style={{ ...styles.container, justifyContent: 'center', alignItems: 'center' }}>
+      <div style={{...styles.container, justifyContent: 'center', alignItems: 'center'}}>
         <h2 style={{color: '#9CA3AF'}}>Select a chat to start messaging</h2>
       </div>
     );
@@ -95,9 +98,13 @@ function MessagePanel({ user, chat }) {
 
   return (
     <div style={styles.container}>
-      <div style={styles.header}>
+      <div 
+        style={{...styles.header, ...(chat.isGroup ? styles.groupHeader : {})}}
+        onClick={() => chat.isGroup && setIsGroupInfoOpen(true)}
+      >
         <div style={styles.chatName}>{getChatDisplayName(chat)}</div>
       </div>
+      
       <div style={styles.messageArea}>
         {messages.map(msg => (
           <div 
@@ -119,7 +126,6 @@ function MessagePanel({ user, chat }) {
               {msg.text}
             </div>
 
-            {/* --- NEW, SIMPLIFIED LOGIC --- */}
             {msg.senderId === user.uid && hoveredMessageId === msg.id && (
               optionsMessageId === msg.id ? (
                 <div style={styles.inlineOptions}>
@@ -136,6 +142,7 @@ function MessagePanel({ user, chat }) {
         ))}
         <div ref={scrollAnchorRef} style={styles.scrollAnchor}></div>
       </div>
+
       <form style={styles.messageInputForm} onSubmit={handleSendMessage}>
         <input 
           style={styles.input} 
@@ -146,6 +153,10 @@ function MessagePanel({ user, chat }) {
         />
         <button style={styles.sendButton} type="submit">Send</button>
       </form>
+
+      {isGroupInfoOpen && (
+        <GroupInfoModal chat={chat} onClose={() => setIsGroupInfoOpen(false)} />
+      )}
     </div>
   );
 }
