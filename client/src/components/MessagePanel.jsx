@@ -1,19 +1,26 @@
 /* File: client/src/components/MessagePanel.jsx
-  Purpose: Make the header clickable for group chats to open the new modal.
+  Purpose: The final, complete version with all features integrated.
 */
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/firebase';
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import io from 'socket.io-client';
+import GroupInfoModal from './GroupInfoModal';
 import { deleteMessageForEveryone } from '../services/api';
-import GroupInfoModal from './GroupInfoModal'; // Import the new modal
+import ImportChatModal from './ImportChatModal';
+
+const SERVER_URL = 'http://localhost:5001';
 
 const styles = {
   container: { display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' },
-  header: { padding: '15px 20px', borderBottom: '1px solid #374151', backgroundColor: '#1F2937' },
-  groupHeader: { cursor: 'pointer' }, // Make group headers clickable
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', borderBottom: '1px solid #374151', backgroundColor: '#1F2937' },
+  headerLeft: { display: 'flex', alignItems: 'center' },
+  groupHeader: { cursor: 'pointer' },
   chatName: { fontWeight: 'bold', fontSize: '18px', color: '#FFFFFF' },
+  importButton: { background: 'none', border: '1px solid #4B5563', color: '#9CA3AF', borderRadius: '4px', padding: '4px 10px', cursor: 'pointer', marginLeft: '15px', fontSize: '12px' },
   messageArea: { flexGrow: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column' },
-  messageInputForm: { display: 'flex', padding: '10px', borderTop: '1px solid #374151', backgroundColor: '#1F2937' },
+  messageInputForm: { display: 'flex', padding: '10px', borderTop: '1px solid #374151', backgroundColor: '#1F2937', alignItems: 'center' },
+  analyzeButton: { padding: '8px 12px', borderRadius: '20px', border: '1px solid #4B5563', backgroundColor: 'transparent', color: '#9CA3AF', cursor: 'pointer', marginRight: '10px' },
   input: { flexGrow: 1, padding: '10px 15px', borderRadius: '20px', border: '1px solid #4B5563', marginRight: '10px', backgroundColor: '#374151', color: '#FFFFFF' },
   sendButton: { padding: '10px 20px', borderRadius: '20px', border: 'none', backgroundColor: '#8B5CF6', color: 'white', cursor: 'pointer', fontWeight: 'bold' },
   messageWrapper: { display: 'flex', marginBottom: '10px', maxWidth: '80%', position: 'relative' },
@@ -24,6 +31,7 @@ const styles = {
   otherMessage: { backgroundColor: '#374151', color: '#D1D5DB' },
   senderName: { fontSize: '12px', color: '#9CA3AF', marginBottom: '4px', fontWeight: 'bold' },
   scrollAnchor: { height: '1px' },
+  aiThinking: { fontStyle: 'italic', color: '#9CA3AF', alignSelf: 'flex-start', padding: '10px 20px' },
   optionsButton: { background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer', padding: '5px', marginLeft: '8px', marginRight: '8px', fontSize: '16px', lineHeight: '1' },
   inlineOptions: { display: 'flex', alignItems: 'center', marginLeft: '8px', marginRight: '8px' },
   inlineButton: { background: '#4B5563', color: 'white', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '12px', cursor: 'pointer', marginLeft: '5px' }
@@ -32,20 +40,39 @@ const styles = {
 function MessagePanel({ user, chat }) {
   const [newMessage, setNewMessage] = useState('');
   const [messages, setMessages] = useState([]);
+  const [socket, setSocket] = useState(null);
+  const [isAiThinking, setIsAiThinking] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [hoveredMessageId, setHoveredMessageId] = useState(null);
   const [optionsMessageId, setOptionsMessageId] = useState(null);
   const scrollAnchorRef = useRef(null);
 
   useEffect(() => {
-    if (scrollAnchorRef.current) {
-      scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages]);
+    const newSocket = io(SERVER_URL);
+    setSocket(newSocket);
+    newSocket.on('connect', () => {
+        if (chat?.id) newSocket.emit('joinRoom', chat.id);
+    });
+    newSocket.on('newMessage', (msg) => {
+        setIsAiThinking(false);
+        setMessages(prev => [...prev.filter(m => !m.id.toString().startsWith('temp_')), msg]);
+    });
+    newSocket.on('aiThinking', () => setIsAiThinking(true));
+    newSocket.on('analysisComplete', () => setIsAnalyzing(false));
+    newSocket.on('errorMessage', (data) => {
+        alert(data.error);
+        setIsAnalyzing(false);
+    });
+    return () => newSocket.close();
+  }, [chat]);
 
   useEffect(() => {
-    if (!chat?.id) return;
-    setOptionsMessageId(null);
+    if (!chat?.id) {
+        setMessages([]);
+        return;
+    };
     const messagesRef = collection(db, 'chats', chat.id, 'messages');
     const q = query(messagesRef, orderBy('timestamp', 'asc'));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -55,17 +82,28 @@ function MessagePanel({ user, chat }) {
     return () => unsubscribe();
   }, [chat]);
 
-  const handleSendMessage = async (event) => {
+  useEffect(() => {
+    if (scrollAnchorRef.current) {
+      scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isAiThinking]);
+
+  const handleSendMessage = (event) => {
     event.preventDefault(); 
-    if (newMessage.trim() === '') return;
-    const messagesRef = collection(db, 'chats', chat.id, 'messages');
-    await addDoc(messagesRef, {
-      text: newMessage,
-      senderId: user.uid,
-      senderName: user.displayName,
-      timestamp: serverTimestamp(),
+    if (newMessage.trim() === '' || !socket) return;
+    socket.emit('sendMessage', {
+      roomId: chat.id, message: newMessage,
+      senderId: user.uid, senderName: user.displayName,
     });
+    const tempId = `temp_${Date.now()}`;
+    setMessages([...messages, { id: tempId, text: newMessage, senderId: user.uid, senderName: user.displayName }]);
     setNewMessage('');
+  };
+
+  const handleAnalyzeClick = () => {
+      if (!socket || isAnalyzing) return;
+      setIsAnalyzing(true);
+      socket.emit('analyzeChat', { roomId: chat.id });
   };
 
   const handleUnsendForMe = (messageId) => {
@@ -76,7 +114,6 @@ function MessagePanel({ user, chat }) {
     try {
         await deleteMessageForEveryone(chat.id, messageId);
     } catch (error) {
-        console.error("Failed to unsend for everyone:", error);
         alert(error.message);
     }
   };
@@ -88,9 +125,13 @@ function MessagePanel({ user, chat }) {
     return chat.participantInfo?.[otherUserId] || 'Direct Message';
   };
 
+  const handleImportSuccess = () => {
+    console.log("Import successful, messages will now appear.");
+  };
+
   if (!chat) {
     return (
-      <div style={{...styles.container, justifyContent: 'center', alignItems: 'center'}}>
+      <div style={{ ...styles.container, justifyContent: 'center', alignItems: 'center' }}>
         <h2 style={{color: '#9CA3AF'}}>Select a chat to start messaging</h2>
       </div>
     );
@@ -98,13 +139,17 @@ function MessagePanel({ user, chat }) {
 
   return (
     <div style={styles.container}>
-      <div 
-        style={{...styles.header, ...(chat.isGroup ? styles.groupHeader : {})}}
-        onClick={() => chat.isGroup && setIsGroupInfoOpen(true)}
-      >
-        <div style={styles.chatName}>{getChatDisplayName(chat)}</div>
+      <div style={styles.header}>
+        <div style={styles.headerLeft}>
+            <div 
+                style={{...(chat.isGroup ? styles.groupHeader : {})}}
+                onClick={() => chat.isGroup && setIsGroupInfoOpen(true)}
+            >
+                <div style={styles.chatName}>{getChatDisplayName(chat)}</div>
+            </div>
+            <button style={styles.importButton} onClick={() => setIsImportModalOpen(true)}>Import</button>
+        </div>
       </div>
-      
       <div style={styles.messageArea}>
         {messages.map(msg => (
           <div 
@@ -125,7 +170,6 @@ function MessagePanel({ user, chat }) {
               {msg.senderId !== user.uid && <div style={styles.senderName}>{msg.senderName}</div>}
               {msg.text}
             </div>
-
             {msg.senderId === user.uid && hoveredMessageId === msg.id && (
               optionsMessageId === msg.id ? (
                 <div style={styles.inlineOptions}>
@@ -140,14 +184,17 @@ function MessagePanel({ user, chat }) {
             )}
           </div>
         ))}
+        {isAiThinking && <div style={styles.aiThinking}>Accord AI is thinking...</div>}
         <div ref={scrollAnchorRef} style={styles.scrollAnchor}></div>
       </div>
-
       <form style={styles.messageInputForm} onSubmit={handleSendMessage}>
+        <button type="button" style={styles.analyzeButton} onClick={handleAnalyzeClick} disabled={isAnalyzing}>
+            {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+        </button>
         <input 
           style={styles.input} 
           type="text" 
-          placeholder="Type a message..." 
+          placeholder="Type a message or @ai..." 
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
         />
@@ -156,6 +203,14 @@ function MessagePanel({ user, chat }) {
 
       {isGroupInfoOpen && (
         <GroupInfoModal chat={chat} currentUser={user} onClose={() => setIsGroupInfoOpen(false)} />
+      )}
+
+      {isImportModalOpen && (
+        <ImportChatModal 
+            chat={chat}
+            onClose={() => setIsImportModalOpen(false)}
+            onImportSuccess={handleImportSuccess}
+        />
       )}
     </div>
   );

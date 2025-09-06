@@ -1,4 +1,9 @@
+/* File: client/src/components/ChatList.jsx
+  Purpose: Add a "leave chat" button that appears on hover.
+  Action: Replace the content of this file.
+*/
 import React, { useState } from 'react';
+import { leaveChat } from '../services/api'; // Import the new API function
 
 const styles = {
   container: { borderRight: '1px solid #374151', height: '100%', display: 'flex', flexDirection: 'column' },
@@ -14,14 +19,13 @@ const styles = {
   leaveButton: { background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: '18px', padding: '0 5px' }
 };
 
-// The onLeaveChat prop is now received from ChatScreen
 function ChatList({ chats, user, onSelectChat, activeChatId, onNewChat, onLeaveChat }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [hoveredChatId, setHoveredChatId] = useState(null);
 
     const handleLeaveClick = (e, chatId) => {
         e.stopPropagation();
-        onLeaveChat(chatId); // Just call the function from the parent
+        onLeaveChat(chatId);
     };
 
     const getChatDisplayName = (chat) => {

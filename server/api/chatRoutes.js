@@ -1,5 +1,6 @@
 /* File: server/api/chatRoutes.js
   Purpose: The complete and final version with all chat-related features.
+  Action: Replace the entire content of your chatRoutes.js file with this.
 */
 const express = require('express');
 const router = express.Router();
@@ -44,7 +45,7 @@ router.post('/create', verifyToken, async (req, res) => {
     }
 });
 
-// LEAVE CHAT ROUTE  this api is to dlete member from the chat list
+// LEAVE CHAT ROUTE
 router.post('/:chatId/leave', verifyToken, async (req, res) => {
     const { chatId } = req.params;
     const { uid } = req.user;
@@ -153,6 +154,41 @@ router.delete('/:chatId/messages/:messageId', verifyToken, async (req, res) => {
     } catch (error) {
         console.error('Error deleting message:', error);
         res.status(500).send({ error: 'Failed to delete message.' });
+    }
+});
+
+// IMPORT MESSAGES ROUTE
+router.post('/:chatId/import', verifyToken, async (req, res) => {
+    const { chatId } = req.params;
+    const { messages } = req.body;
+    const currentUser = req.user;
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+        return res.status(400).send({ error: 'No valid messages provided for import.' });
+    }
+
+    try {
+        const db = admin.firestore();
+        const messagesRef = db.collection('chats').doc(chatId).collection('messages');
+        const batch = db.batch();
+
+        messages.forEach(msg => {
+            const newMsgRef = messagesRef.doc();
+            batch.set(newMsgRef, {
+                text: msg.text,
+                senderId: msg.senderName === currentUser.name ? currentUser.uid : `imported_${msg.senderName.replace(/\s+/g, '_')}`,
+                senderName: msg.senderName,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                isImported: true
+            });
+        });
+
+        await batch.commit();
+        res.status(200).send({ message: `${messages.length} messages imported successfully.` });
+
+    } catch (error) {
+        console.error('Error importing messages:', error);
+        res.status(500).send({ error: 'Failed to import messages.' });
     }
 });
 
