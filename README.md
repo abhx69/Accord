@@ -32,39 +32,4 @@ Silent Analysis: A dedicated Analyze button triggers a deep, unbiased analysis o
 
 Active Querying: Tagging the AI with @ai retrieves the latest silent analysis for context and generates a public, context-aware response to the user's question.
 
-🛠️ Technology Stack
-The application is built on a microservice architecture to separate concerns and ensure scalability.
 
-Frontend (Client)
-
-React (with Vite)
-
-Socket.IO Client
-
-Firebase Client SDK
-
-Backend (Chat Server)
-
-Node.js
-
-Express.js
-
-Socket.IO
-
-Firebase Admin SDK
-
-AI Service
-
-Python
-
-FastAPI
-
-Ollama for running the LLM locally.
-
-Llama 3 Instruct (8B) as the foundational model.
-
-Database & Services
-
-Firebase Firestore: Real-time NoSQL database for messages and user data.
-
-Firebase Authentication: Handles user identity and security.
