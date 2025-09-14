@@ -3,7 +3,6 @@ Accord is a real-time, AI-powered collaborative chat application. Designed to be
 
 The primary differentiator is the integration of Accord AI, a multi-user assistant designed to mediate discussions, analyze conversational dynamics, and provide context-aware insights, moving beyond single-user chatbots to become a true team collaborator.
 
-(Feel free to replace this with an updated screenshot of your app)
 
 ✨ **Key Features**
 Real-time Messaging: Instant message delivery in 1-on-1 and group chats using Socket.IO.
