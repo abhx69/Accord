@@ -1,4 +1,4 @@
-Accord Chat 🚀
+##Accord Chat 🚀
 Accord is a real-time, AI-powered collaborative chat application. Designed to be the "WhatsApp for professionals," it's a core component of the larger Gaprio platform vision. It provides a secure, modern, and intelligent environment where conversations seamlessly transform into actions.
 
 The primary differentiator is the integration of Accord AI, a multi-user assistant designed to mediate discussions, analyze conversational dynamics, and provide context-aware insights, moving beyond single-user chatbots to become a true team collaborator.
