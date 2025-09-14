@@ -1,16 +1,16 @@
-##Accord Chat 🚀
+**Accord Chat** 🚀
 Accord is a real-time, AI-powered collaborative chat application. Designed to be the "WhatsApp for professionals," it's a core component of the larger Gaprio platform vision. It provides a secure, modern, and intelligent environment where conversations seamlessly transform into actions.
 
 The primary differentiator is the integration of Accord AI, a multi-user assistant designed to mediate discussions, analyze conversational dynamics, and provide context-aware insights, moving beyond single-user chatbots to become a true team collaborator.
 
 (Feel free to replace this with an updated screenshot of your app)
 
-✨ Key Features
+✨ **Key Features**
 Real-time Messaging: Instant message delivery in 1-on-1 and group chats using Socket.IO.
 
 Secure User Authentication: Complete user registration with unique usernames, display names, and mandatory one-time email verification powered by Firebase Authentication.
 
-Advanced Chat Management:
+**Advanced Chat Management**:
 
 Create public or private group chats.
 
@@ -26,7 +26,7 @@ Intuitive Chat Creation: A two-tab modal to easily find existing contacts or sea
 
 WhatsApp Chat Import: Upload a .txt file from a WhatsApp export to populate a chat room for immediate AI analysis.
 
-🤖 Unique AI Integration (Accord AI):
+🤖 **Unique AI Integration (Accord AI)**:
 
 Silent Analysis: A dedicated Analyze button triggers a deep, unbiased analysis of the chat history—summarizing interactions, emotions, and psychological dynamics. The analysis is saved secretly to the database.
 
