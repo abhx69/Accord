@@ -1,5 +1,6 @@
-/* File: client/src/screens/AuthScreen.jsx
-  Purpose: The authentication screen, restyled to match the Gaprio theme.
+/*
+  File: client/src/screens/AuthScreen.jsx
+  Purpose: The authentication screen, refactored to use the new SQL backend and JWTs.
 */
 import React, { useState } from 'react';
 import { registerUser, loginUser } from '../services/api';
@@ -30,8 +31,9 @@ function AuthScreen({ onLogin }) {
 
     if (isLogin) {
       try {
+        // Direct call to our new API function
         const data = await loginUser({ email, password });
-        onLogin(data.user);
+        onLogin(data); // Pass the entire data object { token, user }
       } catch (err) {
         setError(err.message);
       } finally {
@@ -41,7 +43,7 @@ function AuthScreen({ onLogin }) {
       try {
         await registerUser({ email, password, displayName, username });
         alert('Registration successful! Please log in.');
-        setIsLogin(true);
+        setIsLogin(true); // Switch to login form
       } catch (err) {
         setError(err.message);
       } finally {

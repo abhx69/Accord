@@ -1,15 +1,8 @@
-/* File: client/src/components/MessagePanel.jsx
-  Purpose: The final, complete version with all features integrated.
-*/
 import React, { useState, useEffect, useRef } from 'react';
-import { db } from '../services/firebase';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
-import io from 'socket.io-client';
+import socket from '../services/socket';
 import GroupInfoModal from './GroupInfoModal';
-import { deleteMessageForEveryone } from '../services/api';
+import { deleteMessageForEveryone, getMessagesForChat, addMemberToGroup, removeMemberFromGroup, importMessages } from '../services/api'; // Make sure importMessages is here
 import ImportChatModal from './ImportChatModal';
-
-const SERVER_URL = 'http://localhost:5001';
 
 const styles = {
   container: { display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' },
@@ -40,7 +33,6 @@ const styles = {
 function MessagePanel({ user, chat }) {
   const [newMessage, setNewMessage] = useState('');
   const [messages, setMessages] = useState([]);
-  const [socket, setSocket] = useState(null);
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false);
@@ -50,69 +42,94 @@ function MessagePanel({ user, chat }) {
   const scrollAnchorRef = useRef(null);
 
   useEffect(() => {
-    const newSocket = io(SERVER_URL);
-    setSocket(newSocket);
-    newSocket.on('connect', () => {
-        if (chat?.id) newSocket.emit('joinRoom', chat.id);
-    });
-    newSocket.on('newMessage', (msg) => {
-        setIsAiThinking(false);
-        setMessages(prev => [...prev.filter(m => !m.id.toString().startsWith('temp_')), msg]);
-    });
-    newSocket.on('aiThinking', () => setIsAiThinking(true));
-    newSocket.on('analysisComplete', () => setIsAnalyzing(false));
-    newSocket.on('errorMessage', (data) => {
+    const handleNewMessage = (msg) => {
+        if (msg.chatId === chat?.id) {
+            setIsAiThinking(false);
+            setMessages(prev => {
+                // --- FIX for Duplicate Messages ---
+                // We remove the temporary optimistic message when the real one arrives.
+                const filtered = prev.filter(m => !m.id.toString().startsWith('temp_'));
+                // Avoid adding duplicates if the message somehow already exists
+                if (filtered.find(m => m.id === msg.id)) return filtered;
+                return [...filtered, msg];
+            });
+        }
+    };
+
+    const handleAnalysisComplete = (data) => {
+        setIsAnalyzing(false);
+        if (data.roomId === chat?.id) {
+            alert("Chat Analysis Complete:\n\n" + data.analysis);
+        }
+    };
+
+    socket.on('newMessage', handleNewMessage);
+    socket.on('aiThinking', () => { if (chat) setIsAiThinking(true) });
+    socket.on('analysisComplete', handleAnalysisComplete);
+    socket.on('errorMessage', (data) => {
         alert(data.error);
+        setIsAiThinking(false);
         setIsAnalyzing(false);
     });
-    return () => newSocket.close();
+
+    return () => {
+      socket.off('newMessage', handleNewMessage);
+      socket.off('aiThinking');
+      socket.off('analysisComplete', handleAnalysisComplete);
+      socket.off('errorMessage');
+    };
   }, [chat]);
 
   useEffect(() => {
-    if (!chat?.id) {
-        setMessages([]);
-        return;
-    };
-    const messagesRef = collection(db, 'chats', chat.id, 'messages');
-    const q = query(messagesRef, orderBy('timestamp', 'asc'));
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const msgs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setMessages(msgs);
-    });
-    return () => unsubscribe();
+    if (chat?.id) {
+      socket.emit('joinRoom', chat.id);
+      getMessagesForChat(chat.id)
+        .then(setMessages)
+        .catch(err => console.error("Failed to fetch messages:", err));
+    } else {
+      setMessages([]);
+    }
   }, [chat]);
 
   useEffect(() => {
     if (scrollAnchorRef.current) {
-      scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth' });
+      scrollAnchorRef.current.scrollIntoView({ behavior: 'auto' });
     }
   }, [messages, isAiThinking]);
 
   const handleSendMessage = (event) => {
     event.preventDefault(); 
-    if (newMessage.trim() === '' || !socket) return;
+    if (newMessage.trim() === '' || !socket || !chat) return;
+
+    // --- FIX for Duplicate Messages ---
+    // The optimistic update now happens only for non-AI messages.
+    // The server will only broadcast back to others.
+    const isAiMessage = newMessage.toLowerCase().startsWith('@ai');
+    if (!isAiMessage) {
+        const tempId = `temp_${Date.now()}`;
+        setMessages(prev => [...prev, { id: tempId, text: newMessage, senderId: user.uid, senderName: user.displayName, chatId: chat.id }]);
+    }
+    
     socket.emit('sendMessage', {
-      roomId: chat.id, message: newMessage,
-      senderId: user.uid, senderName: user.displayName,
+      roomId: chat.id,
+      message: newMessage,
+      senderId: user.uid,
+      senderName: user.displayName,
     });
-    const tempId = `temp_${Date.now()}`;
-    setMessages([...messages, { id: tempId, text: newMessage, senderId: user.uid, senderName: user.displayName }]);
+    
     setNewMessage('');
   };
 
   const handleAnalyzeClick = () => {
-      if (!socket || isAnalyzing) return;
+      if (!socket || isAnalyzing || !chat) return;
       setIsAnalyzing(true);
       socket.emit('analyzeChat', { roomId: chat.id });
-  };
-
-  const handleUnsendForMe = (messageId) => {
-    setMessages(messages.filter(m => m.id !== messageId));
   };
 
   const handleUnsendForEveryone = async (messageId) => {
     try {
         await deleteMessageForEveryone(chat.id, messageId);
+        setMessages(prev => prev.filter(m => m.id !== messageId));
     } catch (error) {
         alert(error.message);
     }
@@ -123,10 +140,6 @@ function MessagePanel({ user, chat }) {
     if (chat.isGroup) return chat.name;
     const otherUserId = chat.members.find(uid => uid !== user.uid);
     return chat.participantInfo?.[otherUserId] || 'Direct Message';
-  };
-
-  const handleImportSuccess = () => {
-    console.log("Import successful, messages will now appear.");
   };
 
   if (!chat) {
@@ -173,7 +186,7 @@ function MessagePanel({ user, chat }) {
             {msg.senderId === user.uid && hoveredMessageId === msg.id && (
               optionsMessageId === msg.id ? (
                 <div style={styles.inlineOptions}>
-                  <button style={styles.inlineButton} onClick={() => handleUnsendForMe(msg.id)}>Delete for me</button>
+                  <button style={styles.inlineButton} onClick={() => setMessages(messages.filter(m => m.id !== msg.id))}>Delete for me</button>
                   <button style={styles.inlineButton} onClick={() => handleUnsendForEveryone(msg.id)}>Delete for all</button>
                 </div>
               ) : (
@@ -209,7 +222,7 @@ function MessagePanel({ user, chat }) {
         <ImportChatModal 
             chat={chat}
             onClose={() => setIsImportModalOpen(false)}
-            onImportSuccess={handleImportSuccess}
+            onImportSuccess={() => getMessagesForChat(chat.id).then(setMessages)}
         />
       )}
     </div>
@@ -217,3 +230,4 @@ function MessagePanel({ user, chat }) {
 }
 
 export default MessagePanel;
+

@@ -1,5 +1,6 @@
 /* File: client/src/components/ImportChatModal.jsx
   Purpose: A new component to handle WhatsApp chat file import and parsing.
+  Updated: Regex logic improved to handle both iOS and Android export formats.
 */
 import React, { useState } from 'react';
 import { importMessages } from '../services/api';
@@ -36,19 +37,36 @@ function ImportChatModal({ chat, onClose, onImportSuccess }) {
             const lines = content.split('\n');
             const messages = [];
             
-            const messageRegex = /^(\d{1,2}\/\d{1,2}\/\d{2,4}), (\d{1,2}:\d{2}\s?[ap]m) - (.*?): (.*)/i;
+            // 1. Android Pattern: 12/25/23, 10:30 PM - Sender: Message
+            // Supports: /, ., or - for dates | 12h or 24h time | "-" separator
+            const regexAndroid = /^(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}),\s(\d{1,2}:\d{2}(?:\s?[aApP][mM])?)\s-\s(.*?):\s(.*)/;
+
+            // 2. iOS Pattern: [12/25/23, 10:30:00 PM] Sender: Message
+            // Supports: Brackets [] | Optional seconds in time | No "-" separator
+            const regexIOS = /^\[(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}),\s(\d{1,2}:\d{2}(?::\d{2})?(?:\s?[aApP][mM])?)\]\s(.*?):\s(.*)/;
 
             let currentMessage = null;
 
             for (const line of lines) {
-                const match = line.match(messageRegex);
+                // Try matching Android first, then iOS
+                const match = line.match(regexAndroid) || line.match(regexIOS);
+
                 if (match) {
                     if (currentMessage) messages.push(currentMessage);
-                    currentMessage = { senderName: match[3], text: match[4].trim() };
+                    
+                    // match[3] is the Sender Name
+                    // match[4] is the Message Text
+                    currentMessage = { 
+                        senderName: match[3], 
+                        text: match[4].trim() 
+                    };
                 } else if (currentMessage) {
+                    // If the line doesn't match a timestamp, it's a continuation of the previous message (multi-line message)
                     currentMessage.text += '\n' + line.trim();
                 }
             }
+            
+            // Push the last message found
             if (currentMessage) messages.push(currentMessage);
 
             if (messages.length > 0) {
@@ -62,7 +80,7 @@ function ImportChatModal({ chat, onClose, onImportSuccess }) {
                     setLoading(false);
                 }
             } else {
-                setError("Could not find any valid WhatsApp messages in this file. The format might be unsupported.");
+                setError("Could not find any valid WhatsApp messages. Your file format might differ from standard iOS/Android exports.");
                 setLoading(false);
             }
         };

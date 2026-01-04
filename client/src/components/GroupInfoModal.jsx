@@ -1,9 +1,9 @@
-/* File: client/src/components/GroupInfoModal.jsx
+/*
+  File: client/src/components/GroupInfoModal.jsx
+  Purpose: Refactored to fetch potential members from the SQL API.
 */
 import React, { useState, useEffect } from 'react';
-import { db } from '../services/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { addMemberToGroup, removeMemberFromGroup } from '../services/api';
+import { getUsers, addMemberToGroup, removeMemberFromGroup } from '../services/api';
 
 const styles = {
     modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
@@ -21,46 +21,37 @@ const styles = {
 };
 
 function GroupInfoModal({ chat, currentUser, onClose }) {
-    const [contacts, setContacts] = useState([]);
+    const [potentialMembers, setPotentialMembers] = useState([]);
     const [selectedToAdd, setSelectedToAdd] = useState([]);
     const isOwner = chat.createdBy === currentUser.uid;
 
+    // --- REFACTORED LOGIC ---
+    // Fetches all users and filters out those who are already in the group.
     useEffect(() => {
         if (!isOwner) return;
-        const fetchContacts = async () => {
+        const fetchPotentialMembers = async () => {
             try {
-                const chatsRef = collection(db, 'chats');
-                const q = query(chatsRef, where('members', 'array-contains', currentUser.uid));
-                const querySnapshot = await getDocs(q);
-
-                const userIds = new Set();
-                querySnapshot.forEach(doc => {
-                    doc.data().members.forEach(memberId => {
-                        if (memberId !== currentUser.uid) userIds.add(memberId);
-                    });
-                });
-
-                const potentialMembers = Array.from(userIds).filter(id => !chat.members.includes(id));
-                
-                if (potentialMembers.length > 0) {
-                    const usersRef = collection(db, 'users');
-                    const usersQuery = query(usersRef, where('uid', 'in', potentialMembers));
-                    const usersSnapshot = await getDocs(usersQuery);
-                    setContacts(usersSnapshot.docs.map(doc => doc.data()));
-                }
+                const allUsers = await getUsers();
+                const potential = allUsers.filter(user => 
+                    !chat.members.includes(user.uid) && user.uid !== currentUser.uid
+                );
+                setPotentialMembers(potential);
             } catch (err) {
-                console.error("Could not load contacts:", err);
+                console.error("Could not load users to add:", err);
             }
         };
-        fetchContacts();
+        fetchPotentialMembers();
     }, [chat, currentUser, isOwner]);
 
     const handleRemoveMember = async (memberId) => {
-        if (!window.confirm("Are you sure you want to remove this member?")) return;
-        try {
-            await removeMemberFromGroup(chat.id, memberId);
-        } catch (error) {
-            alert(error.message);
+        if (window.confirm("Are you sure you want to remove this member?")) {
+            try {
+                await removeMemberFromGroup(chat.id, memberId);
+                // NOTE: You'll need to update the parent component's state to see the change immediately.
+                onClose(); // Close modal to force a refresh for now.
+            } catch (error) {
+                alert(error.message);
+            }
         }
     };
 
@@ -71,6 +62,8 @@ function GroupInfoModal({ chat, currentUser, onClose }) {
                 await addMemberToGroup(chat.id, { uid: userToAdd.uid, displayName: userToAdd.displayName });
             }
             setSelectedToAdd([]);
+             // NOTE: You'll need to update the parent component's state to see the change immediately.
+            onClose(); // Close modal to force a refresh for now.
         } catch (error) {
             alert(error.message);
         }
@@ -93,7 +86,6 @@ function GroupInfoModal({ chat, currentUser, onClose }) {
                     {chat.members.map(uid => (
                         <li key={uid} style={styles.memberItem}>
                             <span>
-                                {/* THIS IS THE FIX: Using optional chaining (?.) */}
                                 {chat.participantInfo?.[uid] || 'Unknown User'}
                                 {uid === chat.createdBy && <span style={styles.ownerText}>(owner)</span>}
                             </span>
@@ -104,18 +96,20 @@ function GroupInfoModal({ chat, currentUser, onClose }) {
                     ))}
                 </ul>
 
-                {isOwner && contacts.length > 0 && (
+                {isOwner && potentialMembers.length > 0 && (
                     <div style={styles.addMembersSection}>
                         <h3 style={{color: '#FFFFFF', marginTop: 0}}>Add Members</h3>
                         <ul style={{listStyle: 'none', padding: 0, maxHeight: '150px', overflowY: 'auto'}}>
-                            {contacts.map(contact => (
+                            {potentialMembers.map(contact => (
                                 <li key={contact.uid} style={{...styles.addMemberItem, ...(selectedToAdd.some(su => su.uid === contact.uid) ? styles.addMemberItemSelected : {})}} onClick={() => handleSelectUserToAdd(contact)}>
                                     <input type="checkbox" style={styles.checkbox} readOnly checked={selectedToAdd.some(su => su.uid === contact.uid)} />
-                                    {contact.displayName}
+                                    {contact.displayName} (@{contact.username})
                                 </li>
                             ))}
                         </ul>
-                        <button style={{...styles.button, ...styles.addButton}} onClick={handleAddMembers}>Add Selected ({selectedToAdd.length})</button>
+                        <button style={{...styles.button, ...styles.addButton}} onClick={handleAddMembers} disabled={selectedToAdd.length === 0}>
+                            Add Selected ({selectedToAdd.length})
+                        </button>
                     </div>
                 )}
 

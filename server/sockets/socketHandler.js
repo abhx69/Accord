@@ -1,98 +1,214 @@
-/* File: server/sockets/socketHandler.js
-  Purpose: Add the new 'analyzeChat' event and update the '@ai' command.
-*/
-const admin = require('firebase-admin');
+const pool = require('../config/db');
 const fetch = require('node-fetch');
 
-const AI_SERVICE_URL = 'http://localhost:5002/ask';
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:5002/ask';
 
 function initializeSocket(io) {
   io.on('connection', (socket) => {
     console.log('✅ Real-time connection established:', socket.id);
 
-    socket.on('joinRoom', (roomId) => { /* ... unchanged ... */ });
+    socket.on('joinRoom', (roomId) => {
+      socket.join(roomId);
+      console.log(`Socket ${socket.id} joined room ${roomId}`);
+    });
 
-    // --- NEW EVENT HANDLER FOR SILENT ANALYSIS ---
+    socket.on('leaveRoom', (roomId) => {
+      socket.leave(roomId);
+      console.log(`Socket ${socket.id} left room ${roomId}`);
+    });
+
     socket.on('analyzeChat', async (data) => {
-        const { roomId } = data;
-        console.log(`Analysis requested for room ${roomId}`);
-        
-        try {
-            const db = admin.firestore();
-            const messagesRef = db.collection('chats').doc(roomId).collection('messages');
-            const chatRef = db.collection('chats').doc(roomId);
+      const { roomId } = data;
+      if (!roomId) return;
+      
+      console.log(`[Socket] Analysis requested for room ${roomId}`);
+      
+      try {
+        const [historyRows] = await pool.query(`
+          SELECT u.displayName as senderName, m.text, m.timestamp
+          FROM messages m
+          JOIN users u ON m.senderId = u.id
+          WHERE m.chatId = ? ORDER BY m.timestamp ASC LIMIT 100
+        `, [roomId]);
 
-            const historySnapshot = await messagesRef.orderBy('timestamp', 'asc').get();
-            const chatHistory = historySnapshot.docs.map(doc => `${doc.data().senderName}: ${doc.data().text}`).join('\n');
+        const chatHistory = historyRows.map(row => 
+          `${row.timestamp} - ${row.senderName}: ${row.text}`
+        ).join('\n');
 
-            const aiResponse = await fetch(AI_SERVICE_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ history: chatHistory, question: '', analysis_mode: true }),
-            });
+        const aiResponse = await fetch(AI_SERVICE_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            history: chatHistory, 
+            question: '', 
+            analysis_mode: true 
+          }),
+        });
 
-            if (!aiResponse.ok) throw new Error('AI service returned an error during analysis.');
-
-            const aiData = await aiResponse.json();
-            const analysisText = aiData.answer || "Analysis could not be completed.";
-
-            // Save the analysis to a separate sub-collection
-            await chatRef.collection('analysis').doc('latest').set({
-                analysis: analysisText,
-                analyzedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-
-            console.log(`Analysis for room ${roomId} completed and saved.`);
-            socket.emit('analysisComplete', { roomId }); // Notify the user who requested it
-
-        } catch (error) {
-            console.error("Error during analysis:", error);
-            socket.emit('errorMessage', { error: 'Could not perform analysis.' });
+        if (!aiResponse.ok) {
+          throw new Error(`AI service returned status ${aiResponse.status}`);
         }
+
+        const aiData = await aiResponse.json();
+        const analysisText = aiData.answer || "Analysis could not be completed.";
+        
+        console.log(`[Socket] Analysis for room ${roomId} completed.`);
+        socket.emit('analysisComplete', { 
+          roomId, 
+          analysis: analysisText 
+        });
+
+      } catch (error) {
+        console.error("[Socket] Error during analysis:", error);
+        socket.emit('errorMessage', { 
+          error: 'Could not perform chat analysis.' 
+        });
+      }
     });
 
     socket.on('sendMessage', async (data) => {
       const { roomId, message, senderId, senderName } = data;
-      const db = admin.firestore();
-      const messagesRef = db.collection('chats').doc(roomId).collection('messages');
-      const chatRef = db.collection('chats').doc(roomId);
       
-      const newMessage = { text: message, senderId, senderName, timestamp: admin.firestore.FieldValue.serverTimestamp() };
-      const savedMessageRef = await messagesRef.add(newMessage);
-      await chatRef.update({ lastMessage: { text: message, timestamp: admin.firestore.FieldValue.serverTimestamp() } });
-      socket.to(roomId).emit('newMessage', { ...newMessage, id: savedMessageRef.id });
+      if (!roomId || !message || !senderId || !senderName) {
+        socket.emit('errorMessage', { 
+          error: 'Missing required message data.' 
+        });
+        return;
+      }
 
-      // --- UPDATED @ai LOGIC ---
+      try {
+        const [result] = await pool.query(
+          'INSERT INTO messages (chatId, senderId, text) VALUES (?, ?, ?)',
+          [roomId, senderId, message]
+        );
+
+        const newMessage = {
+          id: result.insertId,
+          chatId: parseInt(roomId, 10),
+          senderId,
+          senderName,
+          text: message,
+          timestamp: new Date().toISOString()
+        };
+        
+        io.in(roomId).emit('newMessage', newMessage);
+
+      } catch (error) {
+        console.error("Error saving user message:", error);
+        socket.emit('errorMessage', { 
+          error: 'Could not send your message.' 
+        });
+        return;
+      }
+
       if (message.toLowerCase().startsWith('@ai')) {
-            io.in(roomId).emit('aiThinking');
-            const question = message.substring(3).trim();
-            
-            // First, try to get the latest analysis
-            const analysisDoc = await chatRef.collection('analysis').doc('latest').get();
-            let context = "A user has asked a question.";
-            if (analysisDoc.exists) {
-                context = analysisDoc.data().analysis;
-            }
+        try {
+          io.in(roomId).emit('aiThinking', { roomId });
+          const question = message.substring(3).trim();
+          
+          const [historyRows] = await pool.query(
+            `SELECT u.displayName as senderName, m.text, m.timestamp 
+             FROM messages m 
+             JOIN users u ON m.senderId = u.id
+             WHERE m.chatId = ? 
+             ORDER BY m.timestamp DESC LIMIT 50`,
+            [roomId]
+          );
 
-            const aiResponse = await fetch(AI_SERVICE_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ history: context, question: question, analysis_mode: false }),
-            });
-            
-            if (!aiResponse.ok) throw new Error('AI service returned an error.');
+          const chatHistory = historyRows.reverse().map(row => 
+            `${row.senderName}: ${row.text}`
+          ).join('\n');
+          
+          const aiResponse = await fetch(AI_SERVICE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              history: chatHistory, 
+              question: question, 
+              analysis_mode: false 
+            }),
+          });
+          
+          if (!aiResponse.ok) {
+            const errorBody = await aiResponse.text();
+            throw new Error(`AI service failed: ${errorBody}`);
+          }
 
-            const aiData = await aiResponse.json();
-            const aiAnswer = aiData.answer || "Sorry, I encountered an error.";
-            const aiMessage = { text: aiAnswer, senderId: 'AI', senderName: 'Accord AI', timestamp: admin.firestore.FieldValue.serverTimestamp() };
-            
-            const savedAiMessageRef = await messagesRef.add(aiMessage);
-            await chatRef.update({ lastMessage: { text: aiAnswer, timestamp: admin.firestore.FieldValue.serverTimestamp() } });
-            io.in(roomId).emit('newMessage', { ...aiMessage, id: savedAiMessageRef.id });
+          const aiData = await aiResponse.json();
+          const aiAnswer = aiData.answer || "Sorry, I encountered an error.";
+          const attachmentUrl = aiData.attachment || null;
+          
+          const [aiUserRows] = await pool.query(
+            'SELECT id FROM users WHERE username = "AI"'
+          );
+          const aiUserId = aiUserRows.length > 0 ? aiUserRows[0].id : 1;
+
+          const [aiResult] = await pool.query(
+            'INSERT INTO messages (chatId, senderId, text, file_url, file_type) VALUES (?, ?, ?, ?, ?)',
+            [roomId, aiUserId, aiAnswer, attachmentUrl, attachmentUrl ? 'document' : null]
+          );
+
+          const aiMessage = { 
+            id: aiResult.insertId, 
+            text: aiAnswer, 
+            senderId: aiUserId, 
+            senderName: 'Accord AI', 
+            timestamp: new Date().toISOString(),
+            chatId: parseInt(roomId, 10),
+            fileUrl: attachmentUrl
+          };
+          
+          io.in(roomId).emit('newMessage', aiMessage);
+          
+        } catch(error) {
+          console.error("Error in @ai command:", error);
+          socket.emit('errorMessage', { 
+            error: 'Accord AI is currently unavailable.' 
+          });
+        }
       }
     });
 
-    socket.on('disconnect', () => { /* ... unchanged ... */ });
+    socket.on('typingStart', (data) => {
+      const { roomId, senderName } = data;
+      socket.to(roomId).emit('userTyping', { 
+        senderName, 
+        isTyping: true 
+      });
+    });
+
+    socket.on('typingStop', (data) => {
+      const { roomId, senderName } = data;
+      socket.to(roomId).emit('userTyping', { 
+        senderName, 
+        isTyping: false 
+      });
+    });
+
+    socket.on('messageRead', async (data) => {
+      const { roomId, messageId, userId } = data;
+      try {
+        await pool.query(
+          'INSERT INTO message_reads (message_id, user_id) VALUES (?, ?)',
+          [messageId, userId]
+        );
+        
+        socket.to(roomId).emit('messageReadUpdate', {
+          messageId,
+          userId
+        });
+      } catch (error) {
+        console.error("Error updating message read status:", error);
+      }
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log('❌ Connection disconnected:', socket.id, 'Reason:', reason);
+    });
+
+    socket.on('error', (error) => {
+      console.error('Socket error:', error);
+    });
   });
 }
 

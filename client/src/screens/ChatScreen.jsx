@@ -2,9 +2,8 @@ import React, { useState, useEffect } from 'react';
 import ChatList from '../components/ChatList';
 import MessagePanel from '../components/MessagePanel';
 import NewChatModal from '../components/NewChatModal';
-import { db } from '../services/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { leaveChat } from '../services/api';
+import { leaveChat, getChats } from '../services/api';
+import socket from '../services/socket';
 
 const styles = {
   screenContainer: { display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', backgroundColor: '#111827' },
@@ -25,15 +24,32 @@ function ChatScreen({ user, onLogout }) {
 
   useEffect(() => {
     if (!user?.uid) return;
-    const chatsRef = collection(db, 'chats');
-    const q = query(chatsRef, where('members', 'array-contains', user.uid));
     
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-        const userChats = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // Fetch initial chat list via API
+    const fetchUserChats = async () => {
+      try {
+        const userChats = await getChats();
         setChats(userChats);
-    });
+      } catch (error) {
+        console.error("Failed to fetch chats:", error);
+      }
+    };
+    fetchUserChats();
 
-    return () => unsubscribe();
+    // Listen for real-time updates (e.g., if you are added to a new chat)
+    // Note: You would need to implement this 'newChat' event on your server
+    const handleNewChat = (newChat) => {
+        // Check if user is a member of the new chat
+        if (newChat.members.includes(user.uid)) {
+            setChats(prevChats => [...prevChats, newChat]);
+        }
+    };
+    socket.on('newChat', handleNewChat);
+
+    return () => {
+        socket.off('newChat', handleNewChat);
+    };
+
   }, [user]);
 
   const activeChat = chats.find(chat => chat.id === activeChatId) || null;
@@ -44,22 +60,23 @@ function ChatScreen({ user, onLogout }) {
       }
   }, [activeChatId, activeChat, chats]);
 
-  // THIS IS THE FIX: The logic for leaving a chat is now in the parent component.
   const handleLeaveChat = async (chatId) => {
     if (window.confirm("Are you sure you want to leave this chat?")) {
-        // Optimistic update for instant UI feedback
-        if (activeChatId === chatId) {
-            setActiveChatId(null);
-        }
-        setChats(prevChats => prevChats.filter(c => c.id !== chatId));
-
         try {
-            await leaveChat(chatId); // API call in the background
+            await leaveChat(chatId);
+            if (activeChatId === chatId) {
+                setActiveChatId(null);
+            }
+            setChats(prevChats => prevChats.filter(c => c.id !== chatId));
         } catch (error) {
             alert(error.message);
-            // Optional: Add logic to revert the state change if API fails
         }
     }
+  };
+  
+  const handleChatCreated = (newChatInfo) => {
+    // After creating a chat, refetch the list to see it immediately.
+    getChats().then(setChats);
   };
 
   return (
@@ -79,7 +96,7 @@ function ChatScreen({ user, onLogout }) {
                     onSelectChat={(chat) => setActiveChatId(chat.id)} 
                     activeChatId={activeChatId}
                     onNewChat={() => setIsModalOpen(true)}
-                    onLeaveChat={handleLeaveChat} // Pass the new handler down
+                    onLeaveChat={handleLeaveChat}
                 />
             </div>
             <div style={styles.mainContent}>
@@ -90,9 +107,7 @@ function ChatScreen({ user, onLogout }) {
             <NewChatModal 
                 currentUser={user}
                 onClose={() => setIsModalOpen(false)}
-                onChatCreated={(newChat) => {
-                    console.log("New chat created:", newChat);
-                }}
+                onChatCreated={handleChatCreated}
             />
         )}
     </div>
@@ -100,3 +115,4 @@ function ChatScreen({ user, onLogout }) {
 }
 
 export default ChatScreen;
+

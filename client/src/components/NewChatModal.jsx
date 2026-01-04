@@ -1,10 +1,9 @@
-/* File: client/src/components/NewChatModal.jsx
-  Purpose: Rebuilt with a tabbed interface for "Contacts" and "Search".
+/*
+  File: client/src/components/NewChatModal.jsx
+  Purpose: Rebuilt to fetch contacts from the SQL API instead of Firestore.
 */
 import React, { useState, useEffect } from 'react';
-import { searchUser, createChat } from '../services/api';
-import { db } from '../services/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { searchUser, createChat, getUsers } from '../services/api'; // <-- Import getUsers
 
 const styles = {
     modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
@@ -26,39 +25,27 @@ const styles = {
 };
 
 function NewChatModal({ currentUser, onClose, onChatCreated }) {
-    const [activeTab, setActiveTab] = useState('contacts'); // 'contacts' or 'search'
+    const [activeTab, setActiveTab] = useState('contacts');
     const [contacts, setContacts] = useState([]);
     const [selectedUsers, setSelectedUsers] = useState([]);
     const [groupName, setGroupName] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     
-    // For the search tab
     const [searchTerm, setSearchTerm] = useState('');
     const [searchResult, setSearchResult] = useState(null);
 
+    // --- REFACTORED LOGIC ---
+    // This now fetches all users from your API to act as a contacts list.
     useEffect(() => {
         const fetchContacts = async () => {
             try {
-                const chatsRef = collection(db, 'chats');
-                const q = query(chatsRef, where('members', 'array-contains', currentUser.uid));
-                const querySnapshot = await getDocs(q);
-
-                const userIds = new Set();
-                querySnapshot.forEach(doc => {
-                    doc.data().members.forEach(memberId => {
-                        if (memberId !== currentUser.uid) userIds.add(memberId);
-                    });
-                });
-
-                if (userIds.size > 0) {
-                    const usersRef = collection(db, 'users');
-                    const usersQuery = query(usersRef, where('uid', 'in', Array.from(userIds)));
-                    const usersSnapshot = await getDocs(usersQuery);
-                    setContacts(usersSnapshot.docs.map(doc => doc.data()));
-                }
+                const allUsers = await getUsers();
+                // Filter out the current user from the contacts list
+                setContacts(allUsers.filter(user => user.uid !== currentUser.uid));
             } catch (err) {
                 setError('Could not load contacts.');
+                console.error(err);
             }
         };
         if (activeTab === 'contacts') {
@@ -87,13 +74,12 @@ function NewChatModal({ currentUser, onClose, onChatCreated }) {
 
         setLoading(true);
         try {
-            const memberUIDs = [...selectedUsers.map(u => u.uid), currentUser.uid];
-            const participantInfo = {};
-            [...selectedUsers, currentUser].forEach(user => {
-                participantInfo[user.uid] = user.displayName;
-            });
-
-            const chatData = { members: memberUIDs, isGroup, name: isGroup ? groupName : '', participantInfo };
+            // The 'members' payload for the API is an array of user objects
+            const chatData = { 
+                members: selectedUsers, 
+                isGroup, 
+                name: isGroup ? groupName : ''
+            };
             const newChat = await createChat(chatData);
             onChatCreated(newChat);
             onClose();
